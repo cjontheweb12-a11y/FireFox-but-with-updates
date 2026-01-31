@@ -1,0 +1,74 @@
+#include <iostream>
+#include <string>
+#include <curl/curl.h>
+
+// Note: In a real project, use a JSON library like nlohmann/json.
+// For this "one-file" demo, we will format the JSON string manually.
+
+// Callback to handle data received from the website
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+// Function to make HTTP requests
+std::string makeRequest(std::string url, std::string postData = "", std::string apiKey = "") {
+    CURL* curl = curl_easy_init();
+    std::string readBuffer;
+
+    if (curl) {
+        struct curl_slist* headers = NULL;
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        
+        if (!postData.empty()) {
+            headers = curl_slist_append(headers, "Content-Type: application/json");
+            std::string auth = "Authorization: Bearer " + apiKey;
+            headers = curl_slist_append(headers, auth.c_str());
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+        }
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+    }
+    return readBuffer;
+}
+
+int main() {
+    std::string targetUrl, apiKey;
+    
+    std::cout << "--- C++ AI Website Summarizer ---\n";
+    std::cout << "Enter Website URL: ";
+    std::cin >> targetUrl;
+    std::cout << "Enter your OpenAI/Gemini API Key: ";
+    std::cin >> apiKey;
+
+    // 1. Fetch Website Content
+    std::cout << "\n[1/2] Fetching website content..." << std::endl;
+    std::string rawHtml = makeRequest(targetUrl);
+
+    // 2. Extremely basic "Parser" (Grabs text between <body> tags)
+    size_t start = rawHtml.find("<body");
+    size_t end = rawHtml.find("</body>");
+    std::string bodyText = (start != std::string::npos && end != std::string::npos) 
+                           ? rawHtml.substr(start, end - start) 
+                           : rawHtml.substr(0, 2000); // Fallback to first 2k chars
+
+    // 3. Prepare AI Prompt (Escaping quotes for raw JSON)
+    std::cout << "[2/2] Summarizing via AI..." << std::endl;
+    std::string prompt = "Summarize the following website content in 3 bullet points: " + bodyText.substr(0, 3000);
+    
+    // Manual JSON construction for the API
+    std::string jsonPayload = "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"user\", \"content\": \"" + prompt + "\"}]}";
+
+    // 4. Get Summary from API
+    // (Using OpenAI endpoint as an example; structure is similar for Gemini/Claude)
+    std::string response = makeRequest("https://api.openai.com/v1/chat/completions", jsonPayload, apiKey);
+
+    std::cout << "\n--- SUMMARY RESULT ---\n";
+    std::cout << response << std::endl;
+
+    return 0;
+}
